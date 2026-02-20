@@ -10,13 +10,15 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 user_images = {}
 
-# START COMMAND
+# High quality zoom factor
+ZOOM = 2  # 2 = High quality | 3 = Very High (more memory use)
+
+# START
 def start(update: Update, context: CallbackContext):
     update.message.reply_text(
-        "👋 Welcome to PDF Toolkit Bot!\n\n"
-        "Send me:\n"
-        "📄 PDF → Convert to Images / Word\n"
-        "🖼 Images → Convert to PDF"
+        "👋 Welcome to PDF Toolkit Bot\n\n"
+        "📄 Send PDF → Convert to Images / Word\n"
+        "🖼 Send Images → Convert to PDF"
     )
 
 # HANDLE PDF
@@ -31,14 +33,16 @@ def handle_pdf(update: Update, context: CallbackContext):
     file_obj.download("input.pdf")
 
     keyboard = [
-        [InlineKeyboardButton("📷 All Images", callback_data="images")],
-        [InlineKeyboardButton("🗜 Images ZIP", callback_data="zip")],
-        [InlineKeyboardButton("👁 First Page Preview", callback_data="preview")],
+        [InlineKeyboardButton("📷 All Images (HD)", callback_data="images")],
+        [InlineKeyboardButton("🗜 Images ZIP (HD)", callback_data="zip")],
+        [InlineKeyboardButton("👁 First Page Preview (HD)", callback_data="preview")],
         [InlineKeyboardButton("📄 Convert to Word", callback_data="word")]
     ]
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text("Choose conversion type:", reply_markup=reply_markup)
+    update.message.reply_text(
+        "Choose conversion type:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 # HANDLE IMAGES
 def handle_image(update: Update, context: CallbackContext):
@@ -58,10 +62,9 @@ def handle_image(update: Update, context: CallbackContext):
         [InlineKeyboardButton("📄 Convert Images to PDF", callback_data="img2pdf")]
     ]
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
     update.message.reply_text(
         "✅ Image saved.\nSend more images or press convert.",
-        reply_markup=reply_markup
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 # BUTTON HANDLER
@@ -69,13 +72,16 @@ def button_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
 
-    # PDF conversions
+    # -------- PDF CONVERSIONS --------
     if os.path.exists("input.pdf"):
         pdf = fitz.open("input.pdf")
 
+        if query.data in ["preview", "images", "zip"]:
+            mat = fitz.Matrix(ZOOM, ZOOM)
+
         if query.data == "preview":
             page = pdf[0]
-            pix = page.get_pixmap()
+            pix = page.get_pixmap(matrix=mat)
             pix.save("preview.png")
             query.message.reply_photo(open("preview.png", "rb"))
             os.remove("preview.png")
@@ -83,7 +89,7 @@ def button_handler(update: Update, context: CallbackContext):
         elif query.data == "images":
             for i in range(len(pdf)):
                 page = pdf[i]
-                pix = page.get_pixmap()
+                pix = page.get_pixmap(matrix=mat)
                 img_name = f"page_{i+1}.png"
                 pix.save(img_name)
                 query.message.reply_photo(open(img_name, "rb"))
@@ -94,7 +100,7 @@ def button_handler(update: Update, context: CallbackContext):
             with zipfile.ZipFile(zip_name, "w") as zipf:
                 for i in range(len(pdf)):
                     page = pdf[i]
-                    pix = page.get_pixmap()
+                    pix = page.get_pixmap(matrix=mat)
                     img_name = f"page_{i+1}.png"
                     pix.save(img_name)
                     zipf.write(img_name)
@@ -106,8 +112,7 @@ def button_handler(update: Update, context: CallbackContext):
         elif query.data == "word":
             doc = Document()
             for i in range(len(pdf)):
-                page = pdf[i]
-                text = page.get_text()
+                text = pdf[i].get_text()
                 doc.add_paragraph(text)
 
             doc.save("output.docx")
@@ -117,7 +122,7 @@ def button_handler(update: Update, context: CallbackContext):
         pdf.close()
         os.remove("input.pdf")
 
-    # Image to PDF
+    # -------- IMAGE TO PDF --------
     elif query.data == "img2pdf":
         user_id = query.from_user.id
 
@@ -126,7 +131,6 @@ def button_handler(update: Update, context: CallbackContext):
             return
 
         image_list = []
-
         for img_path in user_images[user_id]:
             img = Image.open(img_path).convert("RGB")
             image_list.append(img)
